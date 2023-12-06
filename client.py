@@ -3,41 +3,78 @@ import config
 import json
 from typing import cast
 from urllib3 import HTTPResponse
-from plotly import graph_objects as graph
 import pandas as pd
-import numpy as np
+import plotly.graph_objects as go
 
-client = RESTClient(config.API_KEY)
+class StockDataFetcher:
+    def __init__(self, api_key, symbol):
+        self.client = RESTClient(api_key)
+        self.symbol = symbol
 
-aggs = cast(
-    HTTPResponse,
-    client.get_aggs(
-        'AAPL',
-        1,
-        "day",
-        "2023-01-01",
-        "2023-03-01",
-        raw=True
-    )
-)
-data = json.loads(aggs.data)
-results = data.get('results', [])
-close_list = [bar['c'] for bar in results]
-open_list = [bar['o'] for bar in results]
-high_list = [bar['h'] for bar in results]
-low_list = [bar['l'] for bar in results]
-date_list = [bar['t'] for bar in results]
+    def fetch_data(self, start_date, end_date):
+        aggs = cast(
+            HTTPResponse,
+            self.client.get_aggs(
+                self.symbol,
+                1,
+                "day",
+                start_date,
+                end_date,
+                raw=True
+            )
+        )
+        data = json.loads(aggs.data)
+        return data.get('results', [])
 
-date_list = [pd.to_datetime(date, unit='ms', origin='unix').strftime('%Y-%m-%d') for date in date_list]
+    def process_data(self, data, value_type):
+        value_list = [bar[value_type] for bar in data]
+        date_list = [bar['t'] for bar in data]
+        date_list = [pd.to_datetime(date, unit='ms', origin='unix').strftime('%Y-%m-%d') for date in date_list]
+        return pd.DataFrame({
+            "Date": date_list,
+            value_type.capitalize(): value_list
+        })
+
+    def get_open_values(self, start_date, end_date):
+        data = self.fetch_data(start_date, end_date)
+        return self.process_data(data, 'o')
+
+    def get_high_values(self, start_date, end_date):
+        data = self.fetch_data(start_date, end_date)
+        return self.process_data(data, 'h')
+
+    def get_low_values(self, start_date, end_date):
+        data = self.fetch_data(start_date, end_date)
+        return self.process_data(data, 'l')
+
+    def get_close_values(self, start_date, end_date):
+        data = self.fetch_data(start_date, end_date)
+        return self.process_data(data, 'c')
 
 
-df = pd.DataFrame({
-    "Date": date_list,
-    'Open': open_list,
-    'High': high_list,
-    'Low': low_list,
-    'Close': close_list
-})
-pd.set_option('display.max_rows', None)
-print(df)
+    def get_candlestick_graph(self, start_date, end_date):
+
+        data = self.fetch_data(start_date, end_date)
+        
+        fig = go.Figure(data=[go.Candlestick(
+            x=[pd.to_datetime(bar['t'], unit='ms', origin='unix').strftime('%Y-%m-%d') for bar in data],
+            open=[bar['o'] for bar in data],
+            high=[bar['h'] for bar in data],
+            low=[bar['l'] for bar in data],
+            close=[bar['c'] for bar in data]
+        )])
+
+        fig.update_layout(
+            title=f'Candlestick Chart for {self.symbol} from {start_date} to {end_date}',
+            xaxis_title='Date',
+            yaxis_title='Price',
+            xaxis_rangeslider_visible=False
+        )
+        fig.show()
+
+
+# Usage example
+fetcher = StockDataFetcher(config.API_KEY, 'AAPL')
+fetcher.get_candlestick_graph("2023-01-01", "2023-03-01")
+
 
